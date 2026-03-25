@@ -23,7 +23,7 @@ type OrchestratorConfig struct {
 }
 
 // Orchestrator é a estrutura principal que gerencia o processo de consumo e
-// processamento de mensagens da fila AWS SQS.
+// processamento de mensagens das filas.
 type Orchestrator struct {
 	// Configuração gerais.
 	config *OrchestratorConfig
@@ -65,7 +65,6 @@ func NewOrchestrator(config *OrchestratorConfig) *Orchestrator {
 // Inicia o processo de consumo e processamento de mensagens.
 func (p *Orchestrator) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	// agenda uma funcão para aguardar todos os processos terminarem
 	// os workers só serão encerrados com o fechamando do canal de mensagens
 	wgWorker := sync.WaitGroup{}
