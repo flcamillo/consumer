@@ -42,41 +42,58 @@ go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
 
 ## 🏗️ Arquitetura
 
-```
-┌─────────────────┐         ┌──────────────────┐
-│   AWS SQS       │         │     Kafka        │
-└────────┬────────┘         └────────┬─────────┘
-         │                           │
-         ▼                           ▼
-    ┌────────────────────────────────────┐
-    │   SQS Consumer    │  Kafka Consumer │
-    └────────┬─────────────────┬────────┘
-             │                 │
-             └────────┬────────┘
-                      │
-                      ▼
-            ┌──────────────────┐
-            │  Message Channel │
-            └────────┬─────────┘
-                     │
-        ┌────┴──┬────┴──┬────┐
-        ▼       ▼       ▼    ▼
-      Worker  Worker  Worker ...
-        │       │       │
-        └───┬───┴───┬───┘
-            │       │
-        ┌───▼───┬───▼───┐
-        │ OTEL  │ Logger │
-        └───────┴───────┘
+```mermaid
+graph TD
+    SQS["AWS SQS<br/>Fila de Mensagens"]
+    Kafka["Kafka<br/>Message Broker"]
+    
+    SQSConsumer["SQS Consumer<br/>Polling Contínuo"]
+    KafkaConsumer["Kafka Consumer<br/>Consumo Contínuo"]
+    
+    MessageChan["Message Channel<br/>Canal de Distribuição"]
+    
+    W1["Worker 1"]
+    W2["Worker 2"]
+    W3["Worker 3"]
+    WN["Worker N"]
+    
+    OTEL["OpenTelemetry<br/>Traces, Métricas, Logs"]
+    Logger["Logger Estruturado<br/>log/slog"]
+    
+    SQS --> SQSConsumer
+    Kafka --> KafkaConsumer
+    SQSConsumer --> MessageChan
+    KafkaConsumer --> MessageChan
+    
+    MessageChan --> W1
+    MessageChan --> W2
+    MessageChan --> W3
+    MessageChan --> WN
+    
+    W1 --> OTEL
+    W2 --> OTEL
+    W3 --> OTEL
+    WN --> OTEL
+    
+    W1 --> Logger
+    W2 --> Logger
+    W3 --> Logger
+    WN --> Logger
+    
+    style SQS fill:#FF9900
+    style Kafka fill:#000,color:#fff
+    style OTEL fill:#4472C4
+    style Logger fill:#70AD47
 ```
 
 ### Componentes
 
 - **SQS Consumer**: Consome mensagens de fila AWS SQS com polling contínuo
 - **Kafka Consumer**: Consome mensagens de tópico Kafka
-- **Worker Pool**: Pool de tasks que processam mensagens em paralelo
+- **Worker Pool**: Pool de tasks que processam mensagens em paralelo (escalável)
 - **Message Channel**: Canal Go que distribui mensagens aos workers
 - **OTEL SDK**: Coleta traces, métricas e logs estruturados
+- **Logger**: Sistema de logs estruturado com contexto distribuído
 
 ## 🔧 Configuração
 
@@ -96,10 +113,25 @@ go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
 
 A aplicação utiliza o **AWS SDK v2** que suporta múltiplas formas de autenticação:
 
-1. **Variáveis de Ambiente**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
-2. **AWS Credentials File**: `~/.aws/credentials`
-3. **IAM Role** (recomendado em produção)
-4. **AssumeRole**: Assumir role com credenciais temporárias
+```mermaid
+graph TD
+    A["AWS SDK v2"] --> B{Busca Credenciais}
+    B --> C["1️⃣ Variáveis<br/>de Ambiente"]
+    B --> D["2️⃣ AWS Credentials<br/>File ~/.aws/credentials"]
+    B --> E["3️⃣ IAM Role<br/>Recomendado em Produção"]
+    B --> F["4️⃣ AssumeRole<br/>com Temp Credentials"]
+    
+    C --> Found{"Encontrou?"}
+    D --> Found
+    E --> Found
+    F --> Found
+    
+    Found -->|Sim| Success["✅ Autenticado"]
+    Found -->|Não| Error["❌ Erro de Autenticação"]
+    
+    style Success fill:#70AD47,color:#fff
+    style Error fill:#FF6B6B,color:#fff
+```
 
 Para usar credenciais temporárias da AWS:
 
@@ -115,22 +147,56 @@ set AWS_SESSION_TOKEN=<TOKEN>
 
 ## 📚 Estrutura de Arquivos
 
-```
-├── main.go                  # Ponto de entrada e inicialização
-├── worker.go                # Implementação do pool de workers
-├── sqs_consumer.go          # Consumer para AWS SQS
-├── kafka_consumer.go        # Consumer para Kafka
-├── message_context.go       # Contexto de mensagem processada
-├── orchestrator.go          # Orquestrador de inicialização
-├── otel.go                  # Configuração de OpenTelemetry
-├── utils.go                 # Funções utilitárias
-├── go.mod                   # Definição de módulo Go
-└── go.sum                   # Checksums de dependências
+```mermaid
+graph TD
+    ROOT["consumer/"]
+    ROOT --> GOMOD["go.mod<br/>Definição do módulo"]
+    ROOT --> GOSUM["go.sum<br/>Checksums"]
+    ROOT --> MAIN["main.go<br/>Entrada & Inicialização"]
+    ROOT --> WORKER["worker.go<br/>Pool de Workers"]
+    ROOT --> SQS["sqs_consumer.go<br/>Consumer SQS"]
+    ROOT --> KAFKA["kafka_consumer.go<br/>Consumer Kafka"]
+    ROOT --> MSG["message_context.go<br/>Contexto de Mensagem"]
+    ROOT --> ORCH["orchestrator.go<br/>Orquestrador"]
+    ROOT --> OTEL["otel.go<br/>Configuração OpenTelemetry"]
+    ROOT --> UTILS["utils.go<br/>Funções Utilitárias"]
+    ROOT --> README["README.md<br/>Documentação"]
+    ROOT --> GIT[".gitignore<br/>Git Ignore"]
+    
+    style ROOT fill:#4472C4,color:#fff
+    style MAIN fill:#70AD47
+    style GOMOD fill:#FF9900
+    style OTEL fill:#4472C4
 ```
 
 ## 🚀 Como Executar
 
-### Pré-requisitos
+### Fluxo de Inicialização
+
+```mermaid
+graph TD
+    Start["Iniciar Aplicação"] --> EnvVars["Carregar Variáveis<br/>de Ambiente"]
+    EnvVars --> Validate{Validar<br/>Configurações}
+    Validate -->|Erro| Error["❌ Erro de Configuração<br/>Encerrar"]
+    Validate -->|OK| OTel["Setup OpenTelemetry<br/>Traces, Métricas, Logs"]
+    OTel --> Runtime["Ativar Runtime Metrics<br/>Monitoramento de Memória"]
+    Runtime --> SQSInit["Inicializar SQS Consumer"]
+    Runtime --> KafkaInit["Inicializar Kafka Consumer"]
+    SQSInit --> WorkerPool["Criar Worker Pool<br/>MAX_WORKERS instances"]
+    KafkaInit --> WorkerPool
+    WorkerPool --> Running["✅ Aplicação em Execução"]
+    Running --> ProcessMessages["Processar Mensagens"]
+    ProcessMessages --> Signals{"Receber Sinal?"}
+    Signals -->|SIGTERM/SIGINT| Shutdown["Graceful Shutdown"]
+    Signals -->|Não| ProcessMessages
+    Shutdown --> Done["✅ Encerrado"]
+    
+    style Start fill:#4472C4,color:#fff
+    style Running fill:#70AD47,color:#fff
+    style Done fill:#70AD47,color:#fff
+    style Error fill:#FF6B6B,color:#fff
+    style Shutdown fill:#FFA500
+```
 
 - **Go 1.25.5+** instalado
 - **Docker** (para services auxiliares)
@@ -223,6 +289,29 @@ Acesse http://localhost:3000 com as credenciais padrão:
 
 ## 📊 Observabilidade
 
+### Fluxo de Telemetria
+
+```mermaid
+graph LR
+    App["Consumer App"] 
+    App -->|gRPC OTLP| Collector["OTEL Collector<br/>localhost:4317/4318"]
+    
+    Collector --> Tempo["Grafana Tempo<br/>Traces"]
+    Collector --> Mimir["Grafana Mimir<br/>Métricas"]
+    Collector --> Loki["Grafana Loki<br/>Logs"]
+    
+    Tempo --> Grafana["Grafana Dashboard<br/>localhost:3000"]
+    Mimir --> Grafana
+    Loki --> Grafana
+    
+    Grafana --> Visualization["📊 Visualização<br/>e Análise"]
+    
+    style App fill:#4472C4,color:#fff
+    style Collector fill:#FF9900
+    style Grafana fill:#FF6B6B,color:#fff
+    style Visualization fill:#70AD47,color:#fff
+```
+
 ### OpenTelemetry Exporters
 
 O serviço exporta dados via **gRPC OTLP** para:
@@ -268,12 +357,25 @@ Os eventos são processados e podem ser orquestrados via **DynamoDB**, **S3** e 
 
 ### Ciclo de Vida
 
-1. **Recepção**: Consumer recebe mensagem de SQS/Kafka
-2. **Enfileiramento**: Mensagem é colocada no canal de processamento
-3. **Distribuição**: Worker disponível consome a mensagem
-4. **Processamento**: Lógica de negócio é executada
-5. **Conclusão**: Mensagem é marcada como processada
-6. **Observabilidade**: Traces, métricas e logs são coletados
+```mermaid
+sequenceDiagram
+    participant Source as SQS/Kafka
+    participant Consumer as Consumer
+    participant Channel as Message Channel
+    participant Worker
+    participant Processing as Processamento
+    participant Telemetry as OTEL
+
+    Source->>Consumer: Enviar Mensagem
+    Consumer->>Telemetry: Trace: Mensagem Recebida
+    Consumer->>Channel: Enfileirar
+    Channel->>Worker: Distribuir
+    Worker->>Telemetry: Trace: Processamento Iniciado
+    Worker->>Processing: Executar Lógica
+    Processing-->>Worker: Resultado
+    Worker->>Telemetry: Trace: Conclusão<br/>Métricas: Sucesso/Falha
+    Worker->>Telemetry: Log: Detalhes
+```
 
 ### Tratamento de Erros
 
@@ -288,12 +390,23 @@ A aplicação escuta sinais:
 - `SIGTERM`: Encerramento ordenado
 - `SIGINT`: Interrupção (Ctrl+C)
 
-Comportamento de encerramento:
-1. Para de aceitar novas mensagens
-2. Aguarda mensagens em processamento serem concluídas
-3. Encerra conexões
-4. Faz flush de telemetria
-5. Encerra SDK OpenTelemetry
+```mermaid
+graph LR
+    A["Recebe Sinal<br/>SIGTERM/SIGINT"] --> B["Para Aceitar<br/>Novas Mensagens"]
+    B --> C["Aguarda Processamento<br/>em Andamento"]
+    C --> D["Encerra Conexões<br/>SQS/Kafka"]
+    D --> E["Faz Flush de Traces<br/>e Métricas"]
+    E --> F["Encerra SDK<br/>OpenTelemetry"]
+    F --> G["Exit"]
+    
+    style A fill:#FF6B6B
+    style B fill:#FFA500
+    style C fill:#FFD700
+    style D fill:#87CEEB
+    style E fill:#4472C4
+    style F fill:#4472C4
+    style G fill:#333,color:#fff
+```
 
 ## 🔐 Segurança
 
@@ -353,33 +466,45 @@ Para reduzir latência:
 
 ## 🐛 Troubleshooting
 
-### Conexão com SQS
-
+```mermaid
+graph TD
+    Issue["🚨 Problema?"]
+    
+    Issue -->|SQS não recebe| SQSCheck{"SQS_QUEUE_URL<br/>está correto?"}
+    SQSCheck -->|Não| SQSFix["✏️ Ajustar variável"]
+    SQSCheck -->|Sim| CheckAWS["Verificar credenciais AWS"]
+    CheckAWS --> ComboFix["Atualizar variáveis<br/>AWS_*"]
+    
+    Issue -->|Kafka não conecta| KafkaCheck{"KAFKA_BROKER<br/>está acessível?"}
+    KafkaCheck -->|Não| KafkaFix["✏️ Verificar Docker<br/>ou Rede"]
+    KafkaCheck -->|Sim| BrokerFix["Verificar porta<br/>9092"]
+    
+    Issue -->|Sem Telemetria| TelemetryCheck{"OTEL_EXPORTER<br/>configurado?"}
+    TelemetryCheck -->|Não| TelemetryFix1["✏️ Adicionar Variável"]
+    TelemetryCheck -->|Sim| TelemetryFix2["Verificar Collector<br/>está rodando"]
+    
+    Issue -->|Memória crescendo| MemFix["Ajustar MAX_WORKERS<br/>ou revisar lógica"]
+    
+    SQSFix --> Done["✅ Resolvido"]
+    ComboFix --> Done
+    KafkaFix --> Done
+    BrokerFix --> Done
+    TelemetryFix1 --> Done
+    TelemetryFix2 --> Done
+    MemFix --> Done
+    
+    style Issue fill:#FF6B6B,color:#fff
+    style Done fill:#70AD47,color:#fff
 ```
-Error: failed to receive messages from SQS
-```
 
-**Solução**: Verificar `SQS_QUEUE_URL` e credenciais AWS
+### Problemas Comuns
 
-### Conexão com Kafka
-
-```
-Error: failed to dial broker
-```
-
-**Solução**: Verificar `KAFKA_BROKER` está acessível
-
-### Telemetria não aparece no Grafana
-
-```
-Error: failed to setup OTel SDK
-```
-
-**Solução**: Verificar `OTEL_EXPORTER_OTLP_ENDPOINT` está configurado e o collector está rodando
-
-### Memória crescendo
-
-**Solução**: Monitorar métricas de runtime, ajustar `MAX_WORKERS`
+| Problema | Verificação | Solução |
+|----------|-----------|---------|
+| SQS falha | `SQS_QUEUE_URL` | Verificar URL e credenciais AWS |
+| Kafka falha | `KAFKA_BROKER` acessível | Verificar Docker, porta 9092 |
+| Sem Telemetria | `OTEL_EXPORTER_OTLP_ENDPOINT` | Configurar e iniciar Grafana LGTM |
+| Memória crescendo | Métricas de runtime | Ajustar `MAX_WORKERS` |
 
 ## 📝 Logging
 
@@ -397,7 +522,38 @@ time=2024-03-24T10:30:46.456Z level=INFO msg="message received" service.name=con
 
 ## 🚀 Deployment
 
+### Topologia de Deployment
+
+```mermaid
+graph TB
+    subgraph Local["🏠 Local Development"]
+        Docker1["Docker<br/>Grafana LGTM"]
+        Docker2["Docker<br/>Kafka"]
+        Consumer1["Consumer<br/>Executable"]
+    end
+    
+    subgraph Prod["☁️ Produção"]
+        K8s["Kubernetes Cluster"]
+        K8s --> Replicas["3x Consumer Pods<br/>Load Balanced"]
+        K8s --> ConfigMap["ConfigMap<br/>Variáveis Config"]
+        K8s --> Secret["Secret<br/>AWS Credentials"]
+        Replicas --> ConfigMap
+        Replicas --> Secret
+    end
+    
+    Docker1 -.->|Telemetria| Prod
+    Docker2 -.->|Mensagens| Prod
+    
+    style Docker1 fill:#FF9900
+    style Docker2 fill:#000,color:#fff
+    style Consumer1 fill:#4472C4,color:#fff
+    style K8s fill:#326CE5,color:#fff
+    style Replicas fill:#70AD47,color:#fff
+```
+
 ### Docker
+
+Construir imagem:
 
 ```dockerfile
 FROM golang:1.25.5 as builder
@@ -411,24 +567,74 @@ EXPOSE 4317 4318
 CMD ["consumer"]
 ```
 
+Executar container:
+
+```bash
+docker build -t consumer:latest .
+docker run -d \
+  -e OTEL_SERVICE_NAME=consumer \
+  -e SQS_QUEUE_URL=https://sqs.region.amazonaws.com/account/queue \
+  -e KAFKA_BROKER=kafka:9092 \
+  consumer:latest
+```
+
 ### Kubernetes
 
+Deploy com 3 replicas:
+
 ```yaml
-apiVersion: v1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: consumer
+  namespace: default
 spec:
   replicas: 3
-  containers:
-  - name: consumer
-    image: consumer:latest
-    env:
-    - name: OTEL_SERVICE_NAME
-      value: "consumer"
-    - name: MAX_WORKERS
-      value: "10"
-    # ... outras variáveis de ambiente
+  selector:
+    matchLabels:
+      app: consumer
+  template:
+    metadata:
+      labels:
+        app: consumer
+    spec:
+      containers:
+      - name: consumer
+        image: consumer:latest
+        imagePullPolicy: Always
+        env:
+        - name: OTEL_SERVICE_NAME
+          value: "consumer"
+        - name: MAX_WORKERS
+          valueFrom:
+            configMapKeyRef:
+              name: consumer-config
+              key: max-workers
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws-credentials
+              key: access-key-id
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws-credentials
+              key: secret-access-key
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - ps aux | grep consumer || exit 1
+          initialDelaySeconds: 10
+          periodSeconds: 10
 ```
 
 ## 📄 Licença
