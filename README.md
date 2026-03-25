@@ -344,15 +344,6 @@ Cada operação gera spans com informações de:
 
 Utiliza `log/slog` com integração OpenTelemetry para logs estruturados com contexto distribuído.
 
-## 🔌 Integração com AWS Transfer Family
-
-Esta aplicação foi projetada para receber eventos de **AWS EventBridge** através de **SQS**, referentes a:
-
-- Início de execução de conectores
-- Encerramento de execução de conectores
-
-Os eventos são processados e podem ser orquestrados via **DynamoDB**, **S3** e **Secrets Manager**.
-
 ## ⚙️ Processamento de Mensagens
 
 ### Ciclo de Vida
