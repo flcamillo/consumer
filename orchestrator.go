@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -92,6 +93,7 @@ func (p *Orchestrator) Run(ctx context.Context) error {
 	// aguarda por erro ou cancelamento
 	select {
 	case <-ctx.Done():
+		slog.InfoContext(ctx, "stopping Worker due to context cancellation...")
 		return nil
 	case err := <-errChan:
 		return err
